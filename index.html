@@ -1,0 +1,762 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>方块堆叠 - 物理小游戏</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Arial', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            margin: 0;
+            padding: 20px;
+        }
+        
+        .game-container {
+            background: rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(10px);
+            border-radius: 20px;
+            padding: 20px;
+            box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+        }
+        
+        canvas {
+            display: block;
+            background: linear-gradient(to bottom, #1a1a2e 0%, #16213e 100%);
+            border-radius: 10px;
+            box-shadow: 0 4px 16px rgba(0, 0, 0, 0.3);
+        }
+        
+        .ui-panel {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-top: 15px;
+            color: white;
+            font-size: 16px;
+        }
+        
+        .btn {
+            background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%);
+            border: none;
+            color: white;
+            padding: 10px 25px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-size: 14px;
+            font-weight: bold;
+            transition: transform 0.2s, box-shadow 0.2s;
+            margin: 0 5px;
+        }
+        
+        .btn:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+        }
+        
+        .btn:active {
+            transform: translateY(0);
+        }
+        
+        .lives {
+            font-size: 24px;
+            color: #ff6b6b;
+        }
+        
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.7);
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            background: white;
+            padding: 30px;
+            border-radius: 20px;
+            max-width: 400px;
+            width: 90%;
+            box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+        }
+        
+        .modal-content h2 {
+            margin-bottom: 20px;
+            color: #333;
+        }
+        
+        .setting-group {
+            margin-bottom: 15px;
+        }
+        
+        .setting-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #555;
+            font-weight: bold;
+        }
+        
+        .setting-group input, .setting-group select {
+            width: 100%;
+            padding: 8px;
+            border: 2px solid #ddd;
+            border-radius: 8px;
+            font-size: 14px;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+        
+        .checkbox-group input[type="checkbox"] {
+            width: auto;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <canvas id="gameCanvas"></canvas>
+        <div class="ui-panel">
+            <span>生命: <span class="lives" id="livesDisplay">❤️❤️❤️❤️❤️</span></span>
+            <span>得分: <span id="scoreDisplay">0</span></span>
+            <span>冰块倒计时: <span id="iceCountdown">5</span></span>
+            <div>
+                <button class="btn" onclick="saveGame()">保存</button>
+                <button class="btn" onclick="loadGame()">加载</button>
+                <button class="btn" onclick="openSettings()">设置</button>
+                <button class="btn" onclick="resetGame()">新游戏</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="settingsModal">
+        <div class="modal-content">
+            <h2>游戏设置</h2>
+            <div class="setting-group">
+                <label>掉落速度 (秒):</label>
+                <input type="range" id="dropSpeed" min="1" max="5" step="0.5" value="2">
+                <span id="dropSpeedValue">2</span>
+            </div>
+            <div class="setting-group">
+                <label>货箱宽度:</label>
+                <input type="range" id="boxWidth" min="200" max="500" step="10" value="300">
+                <span id="boxWidthValue">300</span>
+            </div>
+            <div class="setting-group">
+                <label>生命值:</label>
+                <input type="number" id="maxLives" min="1" max="10" value="5">
+            </div>
+            <div class="setting-group">
+                <label>特殊方块:</label>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="enableBouncy" checked>
+                    <label>弹性方块 (有弹力)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="enableHeavy">
+                    <label>重型方块 (重量加倍)</label>
+                </div>
+                <div class="checkbox-group">
+                    <input type="checkbox" id="enableExplosive">
+                    <label>爆炸方块 (碰撞后爆炸)</label>
+                </div>
+            </div>
+            <button class="btn" onclick="applySettings()">应用设置</button>
+            <button class="btn" onclick="closeSettings()">取消</button>
+        </div>
+    </div>
+    
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // 画布设置
+        canvas.width = 600;
+        canvas.height = 700;
+        
+        // 游戏状态
+        let gameState = {
+            lives: 5,
+            score: 0,
+            gameOver: false,
+            objects: [],
+            box: null,
+            dropTimer: 0,
+            dropInterval: 120, // 帧数
+            objectCount: 0,
+            iceCountdown: 5,
+            frozenPairs: [],
+            settings: {
+                dropSpeed: 2,
+                boxWidth: 300,
+                maxLives: 5,
+                enableBouncy: true,
+                enableHeavy: false,
+                enableExplosive: false
+            }
+        };
+        
+        // 货箱类
+        class Box {
+            constructor(x, width) {
+                this.x = x;
+                this.y = canvas.height - 100;
+                this.width = width;
+                this.height = 200;
+                this.vx = 0;
+            }
+            
+            draw() {
+                // 货箱主体
+                ctx.fillStyle = '#8B4513';
+                ctx.fillRect(this.x, this.y, this.width, 10);
+                
+                // 货箱侧面
+                ctx.fillStyle = '#A0522D';
+                ctx.fillRect(this.x, this.y, this.width, 20);
+                ctx.fillRect(this.x, this.y + 10, 5, this.height);
+                ctx.fillRect(this.x + this.width - 5, this.y + 10, 5, this.height);
+                
+                // 货箱底部
+                ctx.fillStyle = '#654321';
+                ctx.fillRect(this.x, this.y + this.height, this.width, 10);
+            }
+            
+            update() {
+                this.x += this.vx;
+                // 边界检测
+                if (this.x < 0) {
+                    this.x = 0;
+                    this.vx = 0;
+                }
+                if (this.x + this.width > canvas.width) {
+                    this.x = canvas.width - this.width;
+                    this.vx = 0;
+                }
+                // 摩擦力
+                this.vx *= 0.9;
+            }
+            
+            contains(point) {
+                return point.x >= this.x && point.x <= this.x + this.width &&
+                       point.y >= this.y && point.y <= this.y + this.height;
+            }
+        }
+        
+        // 物理对象类
+        class PhysicsObject {
+            constructor(type, x, y, width, height) {
+                this.type = type || 'normal';
+                this.x = x;
+                this.y = y;
+                this.width = width || 40;
+                this.height = height || 40;
+                this.vx = 0;
+                this.vy = 0;
+                this.rotation = 0;
+                this.angularVelocity = 0;
+                this.frozen = false;
+                this.frozenTimer = 0;
+                this.mass = 1;
+                this.restitution = 0.3;
+                this.friction = 0.5;
+                this.timeInContact = 0;
+            }
+            
+            draw() {
+                ctx.save();
+                ctx.translate(this.x + this.width / 2, this.y + this.height / 2);
+                ctx.rotate(this.rotation);
+                
+                // 根据类型选择颜色
+                switch(this.type) {
+                    case 'ice':
+                        ctx.fillStyle = '#87CEEB';
+                        ctx.strokeStyle = '#4A90E2';
+                        break;
+                    case 'bouncy':
+                        ctx.fillStyle = '#FF69B4';
+                        ctx.strokeStyle = '#FF1493';
+                        break;
+                    case 'heavy':
+                        ctx.fillStyle = '#2F4F4F';
+                        ctx.strokeStyle = '#1a1a1a';
+                        break;
+                    case 'explosive':
+                        ctx.fillStyle = '#FF4500';
+                        ctx.strokeStyle = '#FF0000';
+                        break;
+                    default:
+                        ctx.fillStyle = `hsl(${Math.random() * 360}, 70%, 60%)`;
+                        ctx.strokeStyle = '#333';
+                }
+                
+                ctx.fillRect(-this.width / 2, -this.height / 2, this.width, this.height);
+                ctx.strokeRect(-this.width / 2, -this.height / 2, this.width, this.height);
+                
+                // 如果冻结，添加特殊效果
+                if (this.frozen) {
+                    ctx.strokeStyle = '#FFD700';
+                    ctx.lineWidth = 2;
+                    ctx.strokeRect(-this.width / 2, -this.height / 2, this.width, this.height);
+                }
+                
+                ctx.restore();
+            }
+            
+            update() {
+                if (this.frozen) return;
+                
+                // 重力
+                this.vy += 0.5;
+                
+                // 更新位置
+                this.x += this.vx;
+                this.y += this.vy;
+                this.rotation += this.angularVelocity;
+                
+                // 空气阻力
+                this.vx *= 0.99;
+                this.vy *= 0.99;
+                this.angularVelocity *= 0.95;
+                
+                // 落在货箱外
+                if (this.y > canvas.height) {
+                    return 'outOfBounds';
+                }
+            }
+        }
+        
+        // 创建随机形状的物体
+        function createRandomShape() {
+            const shapes = [
+                { type: 'square', w: 40, h: 40 },
+                { type: 'rectangle_h', w: 60, h: 30 },
+                { type: 'rectangle_v', w: 30, h: 60 },
+                { type: 'L_shape', w: 60, h: 60 },
+                { type: 'T_shape', w: 60, h: 60 }
+            ];
+            
+            const shape = shapes[Math.floor(Math.random() * shapes.length)];
+            const x = Math.random() * (canvas.width - 100) + 50;
+            
+            // 决定方块类型
+            let blockType = 'normal';
+            if (gameState.objectCount % 5 === 0 && gameState.objectCount > 0) {
+                blockType = 'ice';
+            } else if (Math.random() < 0.1) {
+                // 10%几率生成特殊方块
+                if (gameState.settings.enableBouncy && Math.random() < 0.4) {
+                    blockType = 'bouncy';
+                } else if (gameState.settings.enableHeavy && Math.random() < 0.5) {
+                    blockType = 'heavy';
+                } else if (gameState.settings.enableExplosive && Math.random() < 0.5) {
+                    blockType = 'explosive';
+                }
+            }
+            
+            const obj = new PhysicsObject(blockType, x, -40, shape.w, shape.h);
+            
+            // 特殊属性设置
+            switch(blockType) {
+                case 'ice':
+                    obj.frozenTimer = 0; // 立即冻结
+                    break;
+                case 'bouncy':
+                    obj.restitution = 0.8;
+                    break;
+                case 'heavy':
+                    obj.mass = 3;
+                    obj.width *= 1.2;
+                    obj.height *= 1.2;
+                    break;
+                case 'explosive':
+                    obj.restitution = 0.1;
+                    break;
+            }
+            
+            return obj;
+        }
+        
+        // 碰撞检测
+        function checkCollision(obj1, obj2) {
+            const overlapX = Math.min(obj1.x + obj1.width, obj2.x + obj2.width) - Math.max(obj1.x, obj2.x);
+            const overlapY = Math.min(obj1.y + obj1.height, obj2.y + obj2.height) - Math.max(obj1.y, obj2.y);
+            
+            return overlapX > 0 && overlapY > 0;
+        }
+        
+        // 解析碰撞
+        function resolveCollision(obj1, obj2) {
+            const overlapX = Math.min(obj1.x + obj1.width, obj2.x + obj2.width) - Math.max(obj1.x, obj2.x);
+            const overlapY = Math.min(obj1.y + obj1.height, obj2.y + obj2.height) - Math.max(obj1.y, obj2.y);
+            
+            if (overlapX < overlapY) {
+                const direction = obj1.x < obj2.x ? -1 : 1;
+                const totalMass = obj1.mass + obj2.mass;
+                obj1.x += direction * overlapX * (obj2.mass / totalMass);
+                obj2.x -= direction * overlapX * (obj1.mass / totalMass);
+                
+                const relVel = obj1.vx - obj2.vx;
+                const impulse = relVel * (1 + (obj1.restitution + obj2.restitution) / 2);
+                obj1.vx -= impulse * (obj2.mass / totalMass);
+                obj2.vx += impulse * (obj1.mass / totalMass);
+            } else {
+                const direction = obj1.y < obj2.y ? -1 : 1;
+                const totalMass = obj1.mass + obj2.mass;
+                obj1.y += direction * overlapY * (obj2.mass / totalMass);
+                obj2.y -= direction * overlapY * (obj1.mass / totalMass);
+                
+                const relVel = obj1.vy - obj2.vy;
+                const impulse = relVel * (1 + (obj1.restitution + obj2.restitution) / 2);
+                obj1.vy -= impulse * (obj2.mass / totalMass);
+                obj2.vy += impulse * (obj1.mass / totalMass);
+                
+                // 检查接触时间用于冻结
+                if (direction > 0 && Math.abs(relVel) < 1) {
+                    obj1.timeInContact++;
+                    obj2.timeInContact++;
+                }
+            }
+        }
+        
+        // 爆炸效果
+        function explode(obj) {
+            const explosionRadius = 80;
+            gameState.objects.forEach(other => {
+                if (other !== obj && !other.frozen) {
+                    const dx = (other.x + other.width/2) - (obj.x + obj.width/2);
+                    const dy = (other.y + other.height/2) - (obj.y + obj.height/2);
+                    const distance = Math.sqrt(dx * dx + dy * dy);
+                    
+                    if (distance < explosionRadius) {
+                        const force = (1 - distance / explosionRadius) * 10;
+                        other.vx += (dx / distance) * force;
+                        other.vy += (dy / distance) * force;
+                        other.angularVelocity += (Math.random() - 0.5) * force;
+                    }
+                }
+            });
+        }
+        
+        // 更新游戏
+        function update() {
+            if (gameState.gameOver) return;
+            
+            // 更新货箱
+            gameState.box.update();
+            
+            // 更新下落计时器
+            gameState.dropTimer++;
+            if (gameState.dropTimer >= gameState.dropInterval / (gameState.settings.dropSpeed / 2)) {
+                gameState.dropTimer = 0;
+                const newObj = createRandomShape();
+                gameState.objects.push(newObj);
+                gameState.objectCount++;
+                
+                // 更新冰块倒计时
+                gameState.iceCountdown = 5 - (gameState.objectCount % 5);
+                if (gameState.iceCountdown === 0) gameState.iceCountdown = 5;
+            }
+            
+            // 更新所有物体
+            const toRemove = [];
+            gameState.objects.forEach((obj, index) => {
+                const result = obj.update();
+                if (result === 'outOfBounds') {
+                    toRemove.push(index);
+                    gameState.lives--;
+                    updateUI();
+                    
+                    if (gameState.lives <= 0) {
+                        gameState.gameOver = true;
+                        alert('游戏结束！最终得分: ' + gameState.score);
+                    }
+                }
+            });
+            
+            // 移除越界的物体
+            toRemove.sort((a, b) => b - a).forEach(index => {
+                gameState.objects.splice(index, 1);
+            });
+            
+            // 碰撞检测和处理
+            for (let i = 0; i < gameState.objects.length; i++) {
+                for (let j = i + 1; j < gameState.objects.length; j++) {
+                    if (checkCollision(gameState.objects[i], gameState.objects[j])) {
+                        resolveCollision(gameState.objects[i], gameState.objects[j]);
+                        
+                        // 冰块冻结逻辑
+                        if (gameState.objects[i].type === 'ice' || gameState.objects[j].type === 'ice') {
+                            gameState.objects[i].frozen = true;
+                            gameState.objects[j].frozen = true;
+                            gameState.objects[i].frozenTimer = 600;
+                            gameState.objects[j].frozenTimer = 600;
+                        }
+                        
+                        // 爆炸方块
+                        if (gameState.objects[i].type === 'explosive' && !gameState.objects[i].frozen) {
+                            explode(gameState.objects[i]);
+                            toRemove.push(i);
+                        }
+                        if (gameState.objects[j].type === 'explosive' && !gameState.objects[j].frozen) {
+                            explode(gameState.objects[j]);
+                            toRemove.push(j);
+                        }
+                        
+                        // 检查是否应该冻结
+                        if (Math.abs(gameState.objects[i].vy - gameState.objects[j].vy) < 0.5 &&
+                            gameState.objects[i].timeInContact > 60 &&
+                            gameState.objects[j].timeInContact > 60) {
+                            gameState.objects[i].frozen = true;
+                            gameState.objects[j].frozen = true;
+                            gameState.objects[i].frozenTimer = 600;
+                            gameState.objects[j].frozenTimer = 600;
+                            
+                            gameState.score += 10;
+                            updateUI();
+                        }
+                    }
+                }
+                
+                // 与货箱的碰撞检测
+                const obj = gameState.objects[i];
+                if (obj.y + obj.height > gameState.box.y && 
+                    obj.x + obj.width > gameState.box.x && 
+                    obj.x < gameState.box.x + gameState.box.width) {
+                    
+                    obj.y = gameState.box.y - obj.height;
+                    obj.vy = 0;
+                    
+                    // 传递货箱速度给物体（惯性效果）
+                    obj.vx += gameState.box.vx * 0.7;
+                    
+                    // 接触时间计数
+                    if (Math.abs(obj.vy) < 0.5) {
+                        obj.timeInContact++;
+                    }
+                }
+            }
+            
+            // 清理爆炸方块
+            toRemove.sort((a, b) => b - a).forEach(index => {
+                if (index < gameState.objects.length) {
+                    gameState.objects.splice(index, 1);
+                }
+            });
+        }
+        
+        // 渲染
+        function render() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // 绘制网格背景
+            ctx.fillStyle = 'rgba(255, 255, 255, 0.03)';
+            for (let i = 0; i < canvas.width; i += 50) {
+                ctx.fillRect(i, 0, 1, canvas.height);
+            }
+            for (let j = 0; j < canvas.height; j += 50) {
+                ctx.fillRect(0, j, canvas.width, 1);
+            }
+            
+            // 绘制货箱
+            gameState.box.draw();
+            
+            // 绘制所有物体
+            gameState.objects.forEach(obj => obj.draw());
+            
+            // 游戏结束提示
+            if (gameState.gameOver) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.7)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = 'white';
+                ctx.font = '40px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('游戏结束', canvas.width/2, canvas.height/2);
+            }
+        }
+        
+        // 更新UI
+        function updateUI() {
+            const livesDisplay = document.getElementById('livesDisplay');
+            const scoreDisplay = document.getElementById('scoreDisplay');
+            const iceCountdown = document.getElementById('iceCountdown');
+            
+            let livesText = '';
+            for (let i = 0; i < gameState.lives; i++) {
+                livesText += '❤️';
+            }
+            livesDisplay.textContent = livesText;
+            scoreDisplay.textContent = gameState.score;
+            iceCountdown.textContent = gameState.iceCountdown;
+        }
+        
+        // 游戏循环
+        function gameLoop() {
+            update();
+            render();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        // 键盘控制
+        const keys = {};
+        document.addEventListener('keydown', (e) => {
+            keys[e.key] = true;
+            if (e.key === 'ArrowLeft') {
+                gameState.box.vx = -5;
+            } else if (e.key === 'ArrowRight') {
+                gameState.box.vx = 5;
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.key] = false;
+            if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+                gameState.box.vx = 0;
+            }
+        });
+        
+        // 触摸控制
+        let touchStartX = 0;
+        canvas.addEventListener('touchstart', (e) => {
+            touchStartX = e.touches[0].clientX;
+            e.preventDefault();
+        });
+        
+        canvas.addEventListener('touchmove', (e) => {
+            const touchX = e.touches[0].clientX;
+            const deltaX = touchX - touchStartX;
+            gameState.box.x += deltaX * 0.5;
+            touchStartX = touchX;
+            e.preventDefault();
+        });
+        
+        canvas.addEventListener('touchend', (e) => {
+            gameState.box.vx = 0;
+            e.preventDefault();
+        });
+        
+        // 设置功能
+        function openSettings() {
+            document.getElementById('settingsModal').style.display = 'flex';
+            document.getElementById('dropSpeed').value = gameState.settings.dropSpeed;
+            document.getElementById('boxWidth').value = gameState.settings.boxWidth;
+            document.getElementById('maxLives').value = gameState.settings.maxLives;
+            document.getElementById('enableBouncy').checked = gameState.settings.enableBouncy;
+            document.getElementById('enableHeavy').checked = gameState.settings.enableHeavy;
+            document.getElementById('enableExplosive').checked = gameState.settings.enableExplosive;
+            
+            document.getElementById('dropSpeedValue').textContent = gameState.settings.dropSpeed;
+            document.getElementById('boxWidthValue').textContent = gameState.settings.boxWidth;
+        }
+        
+        function closeSettings() {
+            document.getElementById('settingsModal').style.display = 'none';
+        }
+        
+        function applySettings() {
+            gameState.settings.dropSpeed = parseFloat(document.getElementById('dropSpeed').value);
+            gameState.settings.boxWidth = parseInt(document.getElementById('boxWidth').value);
+            gameState.settings.maxLives = parseInt(document.getElementById('maxLives').value);
+            gameState.settings.enableBouncy = document.getElementById('enableBouncy').checked;
+            gameState.settings.enableHeavy = document.getElementById('enableHeavy').checked;
+            gameState.settings.enableExplosive = document.getElementById('enableExplosive').checked;
+            
+            gameState.box.width = gameState.settings.boxWidth;
+            gameState.lives = gameState.settings.maxLives;
+            
+            updateUI();
+            closeSettings();
+        }
+        
+        // 滑块实时更新
+        document.getElementById('dropSpeed').addEventListener('input', function() {
+            document.getElementById('dropSpeedValue').textContent = this.value;
+        });
+        
+        document.getElementById('boxWidth').addEventListener('input', function() {
+            document.getElementById('boxWidthValue').textContent = this.value;
+        });
+        
+        // 存档功能
+        function saveGame() {
+            const saveData = {
+                lives: gameState.lives,
+                score: gameState.score,
+                objectCount: gameState.objectCount,
+                iceCountdown: gameState.iceCountdown,
+                settings: gameState.settings,
+                box: {
+                    x: gameState.box.x,
+                    width: gameState.box.width
+                }
+            };
+            
+            localStorage.setItem('stackingGameSave', JSON.stringify(saveData));
+            alert('游戏已保存！');
+        }
+        
+        function loadGame() {
+            const saveData = localStorage.getItem('stackingGameSave');
+            if (!saveData) {
+                alert('没有找到存档！');
+                return;
+            }
+            
+            const data = JSON.parse(saveData);
+            gameState.lives = data.lives;
+            gameState.score = data.score;
+            gameState.objectCount = data.objectCount;
+            gameState.iceCountdown = data.iceCountdown;
+            gameState.settings = data.settings;
+            gameState.box.x = data.box.x;
+            gameState.box.width = data.box.width;
+            gameState.objects = [];
+            gameState.gameOver = false;
+            
+            updateUI();
+            alert('存档已加载！');
+        }
+        
+        function resetGame() {
+            gameState.lives = gameState.settings.maxLives;
+            gameState.score = 0;
+            gameState.objects = [];
+            gameState.objectCount = 0;
+            gameState.iceCountdown = 5;
+            gameState.gameOver = false;
+            gameState.box = new Box(canvas.width/2 - gameState.settings.boxWidth/2, gameState.settings.boxWidth);
+            updateUI();
+        }
+        
+        // 初始化游戏
+        function init() {
+            gameState.box = new Box(canvas.width/2 - gameState.settings.boxWidth/2, gameState.settings.boxWidth);
+            gameState.lives = gameState.settings.maxLives;
+            updateUI();
+            gameLoop();
+        }
+        
+        // 启动游戏
+        init();
+    </script>
+</body>
+</html>
